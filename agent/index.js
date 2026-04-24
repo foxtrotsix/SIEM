@@ -24,7 +24,8 @@ const CONFIG = {
     logs: [
         '/var/log/auth.log',
         '/var/log/syslog',
-        './test.log'
+        './test.log',
+        '/home/juanz/Documents/KULIAH/SOC/mini-soc-new/logs/access.log'
     ],
     fim: [
         '/etc/passwd',

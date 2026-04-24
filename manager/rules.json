@@ -38,5 +38,55 @@
         "description": "New package installed",
         "source": "inventory",
         "category": "inventory"
+    },
+    {
+        "id": 400001,
+        "level": 8,
+        "description": "Cross-Site Scripting (XSS) attempt detected",
+        "regex": "<script|onerror=|alert\\(|onload=|javascript:|onmouseover=|onfocus=|onsearch=|localStorage|document\\.cookie|eval\\(|sessionStorage",
+        "source": "syslog",
+        "category": "attack"
+    },
+    {
+        "id": 400002,
+        "level": 9,
+        "description": "Sensitive Data Exposure - Credit Card found in logs",
+        "regex": "\\b(?:\\d[ -]?){13,16}\\b",
+        "source": "syslog",
+        "category": "data_leak"
+    },
+    {
+        "id": 400003,
+        "level": 7,
+        "description": "Path Traversal attempt detected",
+        "regex": "\\.\\.\\/|\\.\\.\\\\",
+        "source": "syslog",
+        "category": "attack"
+    },
+    {
+        "id": 400004,
+        "level": 8,
+        "description": "SQL Injection (SQLi) attempt detected",
+        "regex": "SELECT\\s+.*FROM|UNION\\s+SELECT|'\\s+OR\\s+'?1'?\\s*=\\s*'?1'?",
+        "source": "syslog",
+        "category": "attack"
+    },
+    {
+        "id": 400005,
+        "level": 6,
+        "description": "Web Login Failed (401)",
+        "regex": "\"status\":\\s*401",
+        "source": "syslog",
+        "category": "authentication"
+    },
+    {
+        "id": 400006,
+        "level": 10,
+        "description": "Web Brute Force Detected",
+        "type": "correlation",
+        "trigger_rule_id": 400005,
+        "frequency": 8,
+        "timeframe": 60,
+        "category": "attack"
     }
 ]

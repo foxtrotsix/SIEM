@@ -34,7 +34,8 @@ class JSONDatabase {
                 description: params[4],
                 full_log: params[5],
                 source: params[6],
-                data: params[7]
+                data: params[7],
+                ai_intel: params[8]
             };
             this.data.events.push(event);
         } else if (query.includes('INSERT OR REPLACE INTO agents')) {
