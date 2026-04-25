@@ -20,7 +20,9 @@ import {
   Info,
   Bot,
   Send,
-  X
+  X,
+  Trash2,
+  Download
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -36,21 +38,60 @@ function App() {
   const [stats, setStats] = useState({ eventCount: 0, agentCount: 0, alertsByLevel: [] });
   const [health, setHealth] = useState({ webapp: {}, dns: {}, network: {} });
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [suspects, setSuspects] = useState([]);
   const [selectedEventGroup, setSelectedEventGroup] = useState(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState(null); // Mode Isolasi
+
+  const exportSecurityData = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // 1. Raw Logs (All Events)
+    const rawData = JSON.stringify(events, null, 2);
+    
+    // 2. High Priority Incidents (Level >= 7)
+    const incidentData = JSON.stringify(events.filter(e => e.level >= 7), null, 2);
+    
+    // 3. Structured Threat Intelligence
+    const groupedIntel = [...new Map(events.filter(e => e.ai_intel && e.ai_intel.startsWith('{')).reverse().map(e => [`${e.rule_id}-${e.agent_id}`, e])).values()].reverse();
+    const intelData = JSON.stringify(groupedIntel.map(e => ({
+        timestamp: e.timestamp,
+        agent: e.agent_id,
+        attack_type: e.description,
+        forensic_data: JSON.parse(e.ai_intel)
+    })), null, 2);
+
+    const downloadFile = (content, fileName) => {
+        const blob = new Blob([content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    downloadFile(rawData, `arch_RawLogs_${timestamp}.json`);
+    downloadFile(incidentData, `arch_SecurityIncidents_${timestamp}.json`);
+    downloadFile(intelData, `arch_ThreatIntel_${timestamp}.json`);
+  };
 
   const fetchData = async () => {
     try {
-      const [agentsRes, eventsRes, statsRes, healthRes] = await Promise.all([
+      const [agentsRes, eventsRes, statsRes, healthRes, suspectsRes] = await Promise.all([
         fetch('http://localhost:3000/api/agents'),
-        fetch('http://localhost:3000/api/events'),
-        fetch('http://localhost:3000/api/stats'),
-        fetch('http://localhost:3000/api/health')
+        fetch(`http://localhost:3000/api/events${selectedAgentId ? `?agentId=${selectedAgentId}` : ''}`),
+        fetch(`http://localhost:3000/api/stats${selectedAgentId ? `?agentId=${selectedAgentId}` : ''}`),
+        fetch('http://localhost:3000/api/health'),
+        fetch('http://localhost:3000/api/suspects')
       ]);
       setAgents(await agentsRes.json());
       setEvents(await eventsRes.json());
       setStats(await statsRes.json());
       setHealth(await healthRes.json());
+      setSuspects(await suspectsRes.json());
     } catch (err) {
       console.error('Failed to fetch data', err);
     }
@@ -58,13 +99,19 @@ function App() {
 
   useEffect(() => {
     // Using a separate async function inside useEffect to handle initial load
-    const init = async () => {
-      await fetchData();
-    };
-    init();
+    fetchData();
 
     socket.on('new_event', (event) => {
-      setEvents(prev => [event, ...prev.slice(0, 49)]);
+      // Only add to list if global or matching selected agent
+      if (!selectedAgentId || event.agent_id === selectedAgentId) {
+        setEvents(prev => [event, ...prev].slice(0, 99));
+      }
+      // Always refresh agents to show alert status on cards
+      fetchData();
+    });
+
+    socket.on('event_update', (updatedEvent) => {
+      setEvents(prev => prev.map(e => (e.id === updatedEvent.id || (e.rule_id === updatedEvent.rule_id && e.agent_id === updatedEvent.agent_id)) ? updatedEvent : e));
     });
     
     socket.on('agent_updated', () => {
@@ -81,7 +128,7 @@ function App() {
       socket.off('agent_updated');
       socket.off('stats_updated');
     };
-  }, []);
+  }, [selectedAgentId]); // Re-fetch when isolation mode changes
 
   // Helper functions for dynamic data
   const getChartData = () => {
@@ -126,19 +173,33 @@ function App() {
       <aside className="sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
           <Shield size={32} color="#3b82f6" />
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>ABINARA <span style={{ color: '#3b82f6' }}>SOC</span></h1>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>arch <span style={{ color: '#3b82f6' }}>SOC</span></h1>
         </div>
+
+        {selectedAgentId && (
+            <div className="glass-panel" style={{ padding: '0.5rem', marginBottom: '1rem', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span style={{ fontSize: '0.65rem', color: '#3b82f6', fontWeight: 'bold', textTransform: 'uppercase' }}>Isolated Monitoring</span>
+                <span style={{ fontSize: '0.85rem', color: 'white', fontWeight: 600 }}>{agents.find(a => a.id === selectedAgentId)?.name || selectedAgentId}</span>
+                <button 
+                  onClick={() => setSelectedAgentId(null)}
+                  style={{ fontSize: '0.7rem', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                >
+                  Return to Global
+                </button>
+            </div>
+        )}
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <NavItem icon={<LayoutDashboard size={20}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <NavItem icon={<Users size={20}/>} label="Agents" active={activeTab === 'agents'} onClick={() => setActiveTab('agents')} />
+          <NavItem icon={<AlertTriangle size={20}/>} label="Suspects" active={activeTab === 'suspects'} onClick={() => setActiveTab('suspects')} />
           <NavItem icon={<Bell size={20}/>} label="Events" active={activeTab === 'events'} onClick={() => setActiveTab('events')} />
           <NavItem icon={<Globe size={20}/>} label="Availability" active={activeTab === 'availability'} onClick={() => setActiveTab('availability')} />
           <NavItem icon={<Zap size={20}/>} label="Threat Intel" active={activeTab === 'intel'} onClick={() => setActiveTab('intel')} />
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
             <NavItem 
               icon={<Bot size={20} color={isChatOpen ? "#3b82f6" : undefined} />} 
-              label="Ask Abinara AI" 
+              label="Ask arch AI" 
               active={isChatOpen} 
               onClick={() => setIsChatOpen(!isChatOpen)} 
             />
@@ -163,7 +224,19 @@ function App() {
             />
           </div>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <Trash2 
+              className="stat-icon" 
+              size={20} 
+              style={{ width: '40px', height: '40px', cursor: 'pointer', color: '#f87171', border: '1px solid rgba(248, 113, 113, 0.2)' }} 
+              onClick={async () => {
+                if (window.confirm('Development Mode: Clear all logs?')) {
+                  await fetch('http://localhost:3000/api/events', { method: 'DELETE' });
+                  fetchData();
+                }
+              }} 
+            />
             <RefreshCw className="stat-icon" size={20} style={{ width: '40px', height: '40px', cursor: 'pointer' }} onClick={fetchData} />
+            <Download className="stat-icon" size={20} style={{ width: '40px', height: '40px', cursor: 'pointer', color: '#60a5fa' }} onClick={exportSecurityData} />
             <Bell className="stat-icon" size={20} style={{ width: '40px', height: '40px', cursor: 'pointer' }} />
             <div className="glass-panel" style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(45deg, #3b82f6, #818cf8)' }}></div>
@@ -247,10 +320,12 @@ function App() {
                     </tr>
                     </thead>
                     <tbody>
-                    {events.map((event, i) => (
+                    {[...(selectedAgentId ? events.filter(e => e.agent_id === selectedAgentId) : events)].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 50).map((event, i) => (
                         <tr key={i} className="table-row">
                         <td className="table-cell">{dayjs(event.timestamp).format('HH:mm:ss')}</td>
-                        <td className="table-cell">{agents.find(a => a.id === event.agent_id)?.name || event.agent_id}</td>
+                        <td className="table-cell" style={{ fontWeight: 600, color: event.agent_id === selectedAgentId ? '#3b82f6' : 'inherit' }}>
+                            {agents.find(a => a.id === event.agent_id)?.name || event.agent_id}
+                        </td>
                         <td className="table-cell">
                             <span className={`severity-pill ${getSeverityClass(event.level)}`}>
                             Level {event.level}
@@ -265,6 +340,74 @@ function App() {
               )}
             </div>
           </>
+        )}
+
+        {activeTab === 'agents' && (
+          <div className="tab-pane">
+            <header className="page-header">
+                <h2>Protected Infrastructure Nodes</h2>
+                <p>Real-time status and telemetry from assigned arch-SOC agents</p>
+            </header>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                {agents.map((agent, i) => (
+                    <div 
+                        key={i} 
+                        className={`glass-panel agent-card ${agent.last_high_level >= 7 ? 'alert-pulse' : ''} ${selectedAgentId === agent.id ? 'active-border' : ''}`}
+                        style={{ position: 'relative', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.3s ease' }}
+                        onClick={() => {
+                            setSelectedAgentId(agent.id);
+                            setActiveTab('dashboard');
+                        }}
+                    >
+                        {agent.last_high_level >= 7 && (
+                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: '#ef4444' }}></div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{ 
+                                    width: '48px', 
+                                    height: '48px', 
+                                    borderRadius: '12px', 
+                                    background: agent.last_high_level >= 7 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: agent.last_high_level >= 7 ? '#ef4444' : '#3b82f6'
+                                }}>
+                                    <Server size={24} />
+                                </div>
+                                <div>
+                                    <h4 style={{ color: 'white', fontWeight: 700 }}>{agent.name}</h4>
+                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{agent.ip}</span>
+                                </div>
+                            </div>
+                            <div className={`status-pill ${agent.status}`}>
+                                {agent.status}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                            <div className="agent-mini-stat">
+                                <div className="label">OS</div>
+                                <div className="value" style={{ fontSize: '0.8rem' }}>{agent.os}</div>
+                            </div>
+                            <div className="agent-mini-stat">
+                                <div className="label">Last Seen</div>
+                                <div className="value">{dayjs(agent.last_keepalive).format('HH:mm:ss')}</div>
+                            </div>
+                        </div>
+
+                        {agent.last_high_level >= 7 && (
+                            <div style={{ marginTop: '1rem', padding: '0.5rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <AlertTriangle size={14} color="#ef4444" />
+                                <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 600 }}>CRITICAL INCIDENT DETECTED</span>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+          </div>
         )}
 
         {activeTab === 'events' && (
@@ -357,12 +500,51 @@ function App() {
                 </header>
                 
                 <div className="intel-columns">
-                    <IntelColumn title="Data Collection" items={events.slice(0, 3).map(e => `Raw ingestion from ${e.source}`)} icon={<Search size={18}/>} />
-                    <IntelColumn title="Correlation" items={events.filter(e => e.level >= 10).map(e => `Detected pattern match: Rule #${e.rule_id}`)} icon={<Activity size={18}/>} />
-                    <IntelColumn title="Manual Analysis" items={['Verifying IP reputation...', 'Check payload against known XSS strings']} icon={<Info size={18}/>} />
+                    <IntelColumn 
+                        title="Data Collection" 
+                        items={[...new Map([...events].reverse().slice(-50).map(e => [`${e.rule_id}-${e.agent_id}`, e])).values()]
+                            .reverse()
+                            .slice(0, 10)
+                            .map(e => `${e.description} detected from ${e.agent_id}`)} 
+                        icon={<Search size={18}/>} 
+                    />
+                    <IntelColumn 
+                        title="Correlation" 
+                        items={[...new Map(events.filter(e => e.ai_intel && e.ai_intel.startsWith('{')).reverse().map(e => [`${e.rule_id}-${e.agent_id}`, e])).values()]
+                            .reverse()
+                            .slice(0, 10)
+                            .map(e => {
+                                try {
+                                    const p = JSON.parse(e.ai_intel);
+                                    return p.correlation;
+                                } catch { return `Rule #${e.rule_id} Active`; }
+                            })} 
+                        icon={<Activity size={18}/>} 
+                    />
+                    <IntelColumn 
+                        title="Manual Analysis" 
+                        items={[...new Map(events.filter(e => e.ai_intel && e.ai_intel.startsWith('{')).reverse().map(e => [`${e.rule_id}-${e.agent_id}`, e])).values()]
+                            .reverse()
+                            .slice(0, 10)
+                            .map(e => {
+                                try {
+                                    const p = JSON.parse(e.ai_intel);
+                                    return p.manual_analysis;
+                                } catch { return "Verification in progress..."; }
+                            })} 
+                        icon={<Info size={18}/>} 
+                    />
                     <IntelColumn 
                         title="Actionable Intelligence" 
-                        items={events.filter(e => e.level >= 7 && e.ai_intel).map(e => e.ai_intel)} 
+                        items={[...new Map(events.filter(e => e.ai_intel && e.ai_intel.startsWith('{')).reverse().map(e => [`${e.rule_id}-${e.agent_id}`, e])).values()]
+                            .reverse()
+                            .slice(0, 10)
+                            .map(e => {
+                                try {
+                                    const p = JSON.parse(e.ai_intel);
+                                    return p.actionable;
+                                } catch { return e.ai_intel; }
+                            })}
                         icon={<Zap size={18}/>} 
                     />
                 </div>
@@ -381,7 +563,7 @@ function App() {
                         </div>
                         <div>
                             <p className="text-secondary mb-2">Intelligence Source Feed</p>
-                            <div className="feed-item">ABINARA-Internal-Db: 100% operational</div>
+                            <div className="feed-item">arch-Internal-Db: 100% operational</div>
                             <div className="feed-item">Public CVE Feed: Syncing...</div>
                         </div>
                      </div>
@@ -389,8 +571,75 @@ function App() {
             </div>
         )}
 
+        {activeTab === 'suspects' && (
+          <div className="tab-pane">
+            <header className="page-header">
+                <h2>Intrusion Suspect List</h2>
+                <p>Tracking suspicious entities attempting to access your infrastructure</p>
+            </header>
+            
+            <div className="glass-panel">
+                {suspects.length === 0 ? (
+                    <EmptyState message="No suspicious intrusions detected yet. Staying vigilant!" />
+                ) : (
+                    <table className="table-container">
+                        <thead>
+                            <tr>
+                                <th className="table-header">Intruder IP</th>
+                                <th className="table-header">Location</th>
+                                <th className="table-header">City</th>
+                                <th className="table-header">Threat Level</th>
+                                <th className="table-header">Hits</th>
+                                <th className="table-header">Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {suspects.map((s, i) => (
+                                <tr key={i} className="table-row">
+                                    <td className="table-cell" style={{ fontWeight: 800, color: '#f87171' }}>{s.ip}</td>
+                                    <td className="table-cell text-white">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <Globe size={14} color="#3b82f6" />
+                                            {s.country}
+                                        </div>
+                                    </td>
+                                    <td className="table-cell">{s.city}</td>
+                                    <td className="table-cell">
+                                        <span className={`severity-pill ${s.threat_level === 'Malicious' ? 'sev-high' : 'sev-medium'}`}>
+                                            {s.threat_level}
+                                        </span>
+                                    </td>
+                                    <td className="table-cell">{s.count} times</td>
+                                    <td className="table-cell text-secondary">{dayjs(s.last_seen).format('MMM D, HH:mm')}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
+                <div className="glass-panel text-center" style={{ borderLeft: '4px solid #ef4444' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444' }}>{suspects.length}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>TOTAL UNIQUE INTRUDERS</div>
+                </div>
+                <div className="glass-panel text-center" style={{ borderLeft: '4px solid #3b82f6' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#3b82f6' }}>
+                        {suspects.reduce((acc, curr) => acc + curr.count, 0)}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>TOTAL ATTEMPTS BLOCKED</div>
+                </div>
+                <div className="glass-panel text-center" style={{ borderLeft: '4px solid #10b981' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#10b981' }}>
+                        {new Set(suspects.map(s => s.country)).size}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>COUNTRIES DETECTED</div>
+                </div>
+            </div>
+          </div>
+        )}
       </main>
-      <AIChatAssistant isOpen={isChatOpen} setIsOpen={setIsChatOpen} />
+      <AIChatAssistant isOpen={isChatOpen} setIsOpen={setIsChatOpen} onExport={exportSecurityData} selectedAgentId={selectedAgentId} />
     </div>
   );
 }
@@ -481,8 +730,8 @@ function IntelColumn({ title, items, icon }) {
     );
 }
 
-function AIChatAssistant({ isOpen, setIsOpen }) {
-    const [messages, setMessages] = useState([{ role: 'bot', text: 'Hello! I am your Abinara SOC Analyst. How can I help you analyze the SIEM today?' }]);
+function AIChatAssistant({ isOpen, setIsOpen, onExport, selectedAgentId }) {
+    const [messages, setMessages] = useState([{ role: 'bot', text: selectedAgentId ? `Hello! I am your arch SOC Analyst. I see you are focused on agent [${selectedAgentId}]. How can I help you analyze its telemetry?` : 'Hello! I am your arch SOC Analyst. How can I help you analyze the SIEM today?' }]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const chatEndRef = useRef(null);
@@ -505,12 +754,13 @@ function AIChatAssistant({ isOpen, setIsOpen }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     message: input, 
+                    agentId: selectedAgentId,
                     history: messages.slice(-6).map(m => ({ role: m.role === 'bot' ? 'model' : 'user', text: m.text })) 
                 })
             });
             const data = await res.json();
             setMessages(prev => [...prev, { role: 'bot', text: data.text }]);
-        } catch (err) {
+        } catch {
             setMessages(prev => [...prev, { role: 'bot', text: 'Error connecting to my brain. Please check the Manager log.' }]);
         } finally {
             setLoading(false);
@@ -524,7 +774,7 @@ function AIChatAssistant({ isOpen, setIsOpen }) {
                     <div className="chat-header">
                         <div className="flex items-center gap-2">
                             <Bot size={20} className="text-blue-400" />
-                            <h4 className="font-bold" style={{ color: 'white' }}>Abinara SOC Assistant</h4>
+                            <h4 className="font-bold" style={{ color: 'white' }}>arch SOC Assistant</h4>
                         </div>
                         <button onClick={() => setIsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
                             <X size={20} />
@@ -550,6 +800,29 @@ function AIChatAssistant({ isOpen, setIsOpen }) {
                         />
                         <button type="submit" disabled={loading}><Send size={18}/></button>
                     </form>
+                    <div style={{ padding: '0 15px 15px 15px' }}>
+                        <button 
+                            onClick={onExport}
+                            className="glass-panel"
+                            style={{
+                                width: '100%',
+                                padding: '10px',
+                                background: 'rgba(74, 144, 226, 0.1)',
+                                border: '1px solid rgba(74, 144, 226, 0.3)',
+                                color: '#60a5fa',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            <Download size={14}/> Export All Forensic Reports (.JSON)
+                        </button>
+                    </div>
                 </div>
             )}
         </>

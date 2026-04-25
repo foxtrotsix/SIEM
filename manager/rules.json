@@ -11,7 +11,7 @@
         "id": 100002,
         "level": 7,
         "description": "SSH Login Failed",
-        "regex": "Failed password for (\\w+) from (\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "regex": "[fF]ailed password for (?:invalid user )?(\\w+) from (\\d+\\.\\d+\\.\\d+\\.\\d+)",
         "source": "syslog",
         "category": "authentication"
     },
@@ -21,14 +21,15 @@
         "description": "Brute Force Attempt Detected",
         "type": "correlation",
         "trigger_rule_id": 100002,
-        "frequency": 5,
+        "frequency": 3,
         "timeframe": 60,
         "category": "attack"
     },
     {
         "id": 200001,
-        "level": 5,
+        "level": 6,
         "description": "File integrity monitoring - File changed",
+        "regex": "(?:checksum changed|file (?:deleted|created|modified) on path: /(?:etc|bin|sbin|var/www))",
         "source": "fim",
         "category": "fim"
     },
@@ -41,10 +42,9 @@
     },
     {
         "id": 400001,
-        "level": 8,
+        "level": 9,
         "description": "Cross-Site Scripting (XSS) attempt detected",
-        "regex": "<script|onerror=|alert\\(|onload=|javascript:|onmouseover=|onfocus=|onsearch=|localStorage|document\\.cookie|eval\\(|sessionStorage",
-        "source": "syslog",
+        "regex": "(?:<script|onerror=|alert\\(|onload=|javascript:|onmouseover=|onfocus=|onsearch=|localStorage|document\\.cookie|eval\\(|sessionStorage|base64|srcdoc=|style=[\"']?expression|\\W+alert\\()",
         "category": "attack"
     },
     {
@@ -60,22 +60,20 @@
         "level": 7,
         "description": "Path Traversal attempt detected",
         "regex": "\\.\\.\\/|\\.\\.\\\\",
-        "source": "syslog",
         "category": "attack"
     },
     {
         "id": 400004,
         "level": 8,
         "description": "SQL Injection (SQLi) attempt detected",
-        "regex": "SELECT\\s+.*FROM|UNION\\s+SELECT|'\\s+OR\\s+'?1'?\\s*=\\s*'?1'?",
-        "source": "syslog",
+        "regex": "SELECT\\s+.*FROM|UNION\\s+SELECT|['\"]\\s*OR\\s+.*=.*|['\"]\\s*--|['\"]\\s*#|['\"]\\s*\\/\\*|SLEEP\\s*\\(|BENCHMARK\\s*\\(",
         "category": "attack"
     },
     {
         "id": 400005,
         "level": 6,
         "description": "Web Login Failed (401)",
-        "regex": "\"status\":\\s*401",
+        "regex": "(?:\"status\":\\s*401|HTTP/\\d\\.\\d\"\\s+401|Login\\s+failed|invalid\\s+credentials)",
         "source": "syslog",
         "category": "authentication"
     },
@@ -85,7 +83,7 @@
         "description": "Web Brute Force Detected",
         "type": "correlation",
         "trigger_rule_id": 400005,
-        "frequency": 8,
+        "frequency": 5,
         "timeframe": 60,
         "category": "attack"
     }

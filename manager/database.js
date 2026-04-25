@@ -4,17 +4,25 @@ const path = require('path');
 class JSONDatabase {
     constructor(filename) {
         this.filepath = path.join(__dirname, filename);
-        this.data = { agents: [], events: [], inventory: [] };
+        this.data = { agents: [], events: [], inventory: [], suspects: [] };
         this.load();
     }
 
     load() {
         if (fs.existsSync(this.filepath)) {
             try {
-                this.data = JSON.parse(fs.readFileSync(this.filepath, 'utf8'));
+                const raw = fs.readFileSync(this.filepath, 'utf8').trim();
+                if (raw) {
+                    this.data = JSON.parse(raw);
+                } else {
+                    this.save(); // Initialize empty file
+                }
             } catch (err) {
-                console.error('Failed to parse DB file:', err);
+                console.error(`[DATABASE] Repairing corrupt file at ${this.filepath}...`);
+                this.save(); // Reset to empty structure { agents: [], events: ... }
             }
+        } else {
+            this.save(); // Create initial file
         }
     }
 
@@ -50,6 +58,24 @@ class JSONDatabase {
         } else if (query.includes('UPDATE agents SET status')) {
             const agent = this.data.agents.find(a => a.id === params[1]);
             if (agent) agent.status = params[0];
+        } else if (query.includes('DELETE FROM events')) {
+            this.data.events = [];
+            console.log('[DB] Events cleared');
+        } else if (query.includes('DELETE FROM suspects')) {
+            this.data.suspects = [];
+            console.log('[DB] Suspects cleared');
+        } else if (query.includes('INSERT INTO suspects')) {
+            const index = this.data.suspects.findIndex(s => s.ip === params[0]);
+            const suspect = {
+                ip: params[0], country: params[1], city: params[2], 
+                threat_level: params[3], last_seen: new Date(), count: 1
+            };
+            if (index !== -1) {
+                this.data.suspects[index].count++;
+                this.data.suspects[index].last_seen = new Date();
+            } else {
+                this.data.suspects.push(suspect);
+            }
         } else if (query.includes('INSERT INTO inventory')) {
             this.data.inventory.push({
                 agent_id: params[0], type: params[1], data: params[2], last_updated: params[3]
@@ -61,6 +87,7 @@ class JSONDatabase {
     async all(query) {
         if (query.includes('FROM agents')) return this.data.agents;
         if (query.includes('FROM events')) return [...this.data.events].reverse().slice(0, 100);
+        if (query.includes('FROM suspects')) return [...this.data.suspects].reverse();
         if (query.includes('GROUP BY level')) {
             const counts = {};
             this.data.events.forEach(e => counts[e.level] = (counts[e.level] || 0) + 1);
@@ -81,7 +108,7 @@ class JSONDatabase {
 }
 
 async function setupDatabase() {
-    return new JSONDatabase('abinara_siem.json');
+    return new JSONDatabase('arch_siem.json');
 }
 
 module.exports = { setupDatabase };

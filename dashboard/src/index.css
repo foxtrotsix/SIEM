@@ -453,3 +453,52 @@ body {
     background: #2563eb;
     transform: rotate(15deg);
 }
+
+/* --- Agent Cards & Isolation Styles --- */
+.agent-card {
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(15, 23, 42, 0.6) !important;
+}
+
+.agent-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 10px 30px -10px rgba(59, 130, 246, 0.2);
+}
+
+.active-border {
+  border: 2px solid #3b82f6 !important;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3) !important;
+}
+
+.alert-pulse {
+  animation: pulse-red 2s infinite;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+}
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.agent-mini-stat {
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.agent-mini-stat .label {
+  font-size: 0.6rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.agent-mini-stat .value {
+  font-size: 0.75rem;
+  color: white;
+  font-weight: 600;
+}

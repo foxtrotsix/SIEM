@@ -25,14 +25,15 @@ const CONFIG = {
         '/var/log/auth.log',
         '/var/log/syslog',
         './test.log',
-        '/home/juanz/Documents/KULIAH/SOC/mini-soc-new/logs/access.log'
+        // Support dynamic logs from CLI --log "/path/to/log"
+        ...(argMap.log ? [argMap.log] : [])
     ],
     fim: [
         '/etc/passwd',
         '/etc/shadow',
-        './' // Current directory for demo
+        './' 
     ],
-    inventoryInterval: 60000 // 1 minute
+    inventoryInterval: 60000 
 };
 
 console.log(`[INIT] Agent Starting...`);
@@ -42,7 +43,7 @@ console.log(`[INIT] Agent ID: ${CONFIG.agentId}`);
 const socket = io(CONFIG.managerUrl);
 
 socket.on('connect', async () => {
-    console.log('Connected to Abinara-SOC Manager');
+    console.log('Connected to arch-SOC Manager');
     
     // Registration
     const osInfo = await si.osInfo();
@@ -88,21 +89,31 @@ function startLogHarvester() {
         const watcher = chokidar.watch(fullPath, {
             persistent: true,
             usePolling: true,
-            interval: 100
+            interval: 500 // Increased for stability
         });
 
         watcher.on('error', error => console.error(`Watcher error for ${fullPath}: ${error}`));
 
         let fileSize = fs.statSync(fullPath).size;
+        let isProcessing = false;
 
         watcher.on('change', (p) => {
+            if (isProcessing) return;
             try {
-                const newSize = fs.statSync(p).size;
+                const stats = fs.statSync(p);
+                const newSize = stats.size;
+                
                 if (newSize > fileSize) {
+                    isProcessing = true;
+                    // Important: Store current fileSize to use as start
+                    const startByte = fileSize;
+                    fileSize = newSize; // Update immediately to prevent duplicate triggers
+
                     const stream = fs.createReadStream(p, {
-                        start: fileSize,
-                        end: newSize
+                        start: startByte,
+                        end: newSize - 1
                     });
+
                     stream.on('data', (chunk) => {
                         const lines = chunk.toString().split('\n');
                         lines.forEach(line => {
@@ -112,12 +123,21 @@ function startLogHarvester() {
                             }
                         });
                     });
-                    fileSize = newSize;
+
+                    stream.on('end', () => {
+                        isProcessing = false;
+                    });
+
+                    stream.on('error', () => {
+                        isProcessing = false;
+                    });
+
                 } else if (newSize < fileSize) {
                     fileSize = newSize; 
                 }
             } catch (err) {
                 console.error(`Error reading ${p}:`, err.message);
+                isProcessing = false;
             }
         });
     });
